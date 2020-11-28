@@ -1,3 +1,248 @@
-Is this thing on?
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Gamedev Phaser Workshop - lesson 01: Initialize the framework</title>
+    <style>* { padding: 0; margin: 0; }</style>
+    <script src="js/phaser.min.js"></script>
+</head>
+<body>
+<label for="cars">Choose a level:</label>
 
-Here is another change...
+<select name="level" id="level">
+  <option value="1" selected>Beginner</option>
+  <option value="2">Intermediate</option>
+  <option value="3">Expert</option>  
+</select>
+
+<script>
+		
+	// purpose, setup the game field, parameters, the size of the canvas width, height,
+	//   the functions to call to init the canvas, create the canvas, and update the canvas on a regular interval
+    var game = new Phaser.Game(480, 320, Phaser.CANVAS, null, {
+      preload: preload, create: create, update: update
+    });
+	
+	// style constants
+	var canvasColor = '#25B6A4';
+	
+	var defaultVelocity = 150;
+	var ball;
+	var paddle;
+	var bricks;
+	var newBrick;
+	var brickInfo;
+	var scoreText;
+	var score = 0;
+	var lives = 3;
+	var livesText;
+	var lifeLostText;
+	var textStyle = { font: '18px Arial', fill: '#0095DD' };
+	var playing = false;
+	var startButton;		
+
+    function preload() {
+		// size the canvas surface and other properties
+	    game.scale.scaleMode = Phaser.ScaleManager.SHOW_ALL;
+	    game.scale.pageAlignHorizontally = true;
+	    game.scale.pageAlignVertically = true;
+
+	    game.stage.backgroundColor = canvasColor;
+
+		// Load the assets that will be drawn on the surface, first parameter must match the name of the variable
+		//  in the global variables and also the image name
+		game.load.image('ball', 'images/ball.png');
+		game.load.image('paddle', 'images/paddle.png');
+		game.load.image('brick', 'images/brick.png');
+		
+		// Sprites (an image with multiple frames) are added to have animation, 
+		// first parameter is name, image path, size of frame for a single image.
+		game.load.spritesheet('ball', 'images/wobble.png', 20, 20);
+		game.load.spritesheet('button', 'images/button.png', 120, 40);
+	}
+
+	// A function used to set the velocity of the ball moving on the screen
+	// depending on what level the user selected.
+	function getLevelVelocity()
+	{
+		var level = 1;	
+		var levelSelected = document.getElementById("level");
+		level = levelSelected.value;
+		return level * defaultVelocity;
+	}
+
+    function create() {
+		game.physics.startSystem(Phaser.Physics.ARCADE);
+		
+		ball = game.add.sprite(game.world.width*0.5, game.world.height-25, 'ball');
+		ball.anchor.set(0.5);
+		ball.animations.add('wobble', [0,1,0,2,0,1,0,2,0], 24);
+		
+		paddle = game.add.sprite(game.world.width*0.5, game.world.height-5, 'paddle');
+		
+		game.physics.enable(ball, Phaser.Physics.ARCADE);
+
+		// this indicates the ball will need to stay in the canvas boundary
+		ball.body.collideWorldBounds = true;
+		ball.body.bounce.set(1);
+		// the ball needs velocity for it to move, this has been moved
+		// to the start button
+		//ball.body.velocity.set(150, -150);
+
+		// This turns off the boundary check on the bottom of the canvas boundary so ball can fall through bottom
+		game.physics.arcade.checkCollision.down = false;
+
+		// Make sure the ball checks the boundaries and if it leaves the canvas boundary, currently only through the bottom
+		ball.checkWorldBounds = true;
+		// Call a function when the ball leaves the canvas boundaries
+		ball.events.onOutOfBounds.add(ballLeaveScreen, this);
+		
+		// Set up the paddle
+		paddle.anchor.set(0.5, 1);
+		game.physics.enable(paddle, Phaser.Physics.ARCADE);
+		// This makes sure the paddle doesn't move when colliding with the ball
+		paddle.body.immovable = true;
+		
+		// drawing the bricks
+		initBricks();
+
+		// Draw the score text
+		scoreText = game.add.text(5, 5, 'Points: 0', textStyle);
+		
+		// Draw the lives text
+		livesText = game.add.text(game.world.width-5, 5, 'Lives: '+lives, textStyle);
+		livesText.anchor.set(1,0);
+		// Live lost
+		lifeLostText = game.add.text(game.world.width*0.5, game.world.height*0.5, 'Life lost, click to continue', textStyle);
+		lifeLostText.anchor.set(0.5);
+		lifeLostText.visible = false;
+		
+		// Draw start button, fourth parameter is the function to call when the button is pressed
+		startButton = game.add.button(game.world.width*0.5, game.world.height*0.5, 'button', startGame, this, 1, 0, 2);
+		startButton.anchor.set(0.5);
+	}
+
+    function update() {
+		// check to see if ball or paddle collided, if they did call function ballHitPaddle
+		game.physics.arcade.collide(ball, paddle, ballHitPaddle);
+		// check to see if ball or brick collided, if they did call function ballHitBrick
+		game.physics.arcade.collide(ball, bricks, ballHitBrick);
+		
+		// Do not allow moving of paddle until we are playing
+		if(playing)
+		{
+			paddle.x = game.input.x || game.world.width*0.5;
+		}
+	}
+
+	// Create the group that will hold all of the different children brick objects
+	function initBricks() {
+		brickInfo = 
+		{
+			width: 50,
+			height: 20,
+			count: 
+			{
+				row: 3,
+				col: 7
+			},
+			offset: 
+			{
+				top: 50,
+				left: 60
+			},
+			padding: 10
+		};
+		
+		bricks = game.add.group();
+		
+		for(columnIndex=0; columnIndex<brickInfo.count.col; columnIndex++) {
+			for(rowIndex=0; rowIndex<brickInfo.count.row; rowIndex++) {
+				// create new brick and add it to the group
+				
+				// set the x and y based on what row and column we are in, adding width  + padding + offset.left or offset.top
+				var brickX = (columnIndex*(brickInfo.width+brickInfo.padding))+brickInfo.offset.left;
+				var brickY = (rowIndex*(brickInfo.height+brickInfo.padding))+brickInfo.offset.top;
+				
+				newBrick = game.add.sprite(brickX, brickY, 'brick');
+				game.physics.enable(newBrick, Phaser.Physics.ARCADE);
+				newBrick.body.immovable = true;
+				newBrick.anchor.set(0.5);
+				bricks.add(newBrick);
+			}
+		}
+		
+	}
+	
+	// a ball and brick have collided
+	function ballHitBrick(ball, brick) {
+	
+		ball.animations.play('wobble');
+		
+		//brick.kill();		
+		var killTween = game.add.tween(brick.scale);
+		killTween.to({x:0,y:0}, 200, Phaser.Easing.Linear.None);
+		killTween.onComplete.addOnce(function(){
+			brick.kill();
+		}, this);
+		killTween.start();
+
+		score += 10;
+		scoreText.setText('Points: ' + score);
+		
+		var count_alive = 0;
+		for(brickIndex = 0; brickIndex < bricks.children.length; brickIndex++) {
+			if(bricks.children[brickIndex].alive == true) {
+				count_alive++;
+			}
+		}
+		// we need to subtract one because the tween didn't complete yet, for the current hit, so that brick is still alive.
+		count_alive--;
+		
+		//alert('bricks left' + count_alive);
+		if(count_alive == 0) {
+			alert('You won the game, congratulations!');
+			location.reload();
+		}			
+	}
+	
+	// The ball left the bottom of the canvas
+	function ballLeaveScreen() {
+		lives--;
+		if(lives) {
+			livesText.setText('Lives: '+lives);
+			lifeLostText.visible = true;
+			ball.reset(game.world.width*0.5, game.world.height-25);
+			paddle.reset(game.world.width*0.5, game.world.height-5);
+			game.input.onDown.addOnce(function(){
+				lifeLostText.visible = false;
+				var velocityValue = getLevelVelocity();
+				ball.body.velocity.set(velocityValue, -velocityValue);
+			}, this);
+		}
+		else {
+			alert('You lost, game over!');
+			location.reload();
+		}
+	}
+
+	// The ball hit the paddle
+	function ballHitPaddle(ball, paddle) {
+		ball.animations.play('wobble');
+		// change the ball's velocity depending on exact spot it hits paddle
+		ball.body.velocity.x = -1*5*(paddle.x-ball.x);
+	}
+	
+	// start the game
+	function startGame() {
+		startButton.destroy();
+		var levelList = document.getElementById("level");
+		levelList.disabled=true;
+		var velocityValue = getLevelVelocity();
+		ball.body.velocity.set(velocityValue, -velocityValue);
+		playing = true;
+	}
+
+</script>
+</body>
+</html>
